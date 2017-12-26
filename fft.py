@@ -6,9 +6,9 @@
 #       Scipy
 #
 #   How to execute:
-#       python hw7.py [-h] [--dir DIR] [--filename FILENAME]
+#       python fft.py [-h] [--dir DIR] [--filename FILENAME]
 #       EX:
-#           python hw7.py --filename Q1.tif
+#           python fft.py --filename Q1.tif
 #
 #    optional arguments:
 #      -h, --help  show this help message and exit
@@ -19,12 +19,9 @@
 import argparse, os
 import cv2
 import numpy as np
-import cmath, sys
 from scipy import ndimage, misc
 
 
-# Computes the discrete Fourier transform (DFT) or inverse transform of the given complex vector, returning the result as a new vector.
-# The vector can have any length. This is a wrapper function. The inverse transform does not perform scaling, so it is not a true inverse.
 def transform(x, inverse=False):
     N = x.shape[0]
 
@@ -32,28 +29,48 @@ def transform(x, inverse=False):
         return []
     elif N & (N - 1) == 0:
         # check if it is power of 2
-        return transform_radix2(x, inverse)
+        return bluestein_radix2_transform(x, inverse)
     else:
         # More complicated algorithm for arbitrary sizes
-        return transform_bluestein(x, inverse)
+        return bluestein_transform(x, inverse)
 
 
-# Returns the integer whose value is the reverse of the lowest 'bits' bits of the integer 'x'.
-def reverse(_x, bits):
-    y = 0
-    for i in xrange(bits):
-        y = (y << 1) | (_x & 1)
-        _x >>= 1
-    return y
+# Computes the circular convolution
+def convolve(a, b, real=True):
+    assert a.shape == b.shape
+
+    N = a.shape[0]
+
+    a = transform(a)
+    b = transform(b)
+
+    for i in range(N):
+        a[i] = a[i] * b[i]
+
+    # IDFT
+    a = transform(a, True)
+
+    # Scaling (because this FFT implementation omits it) and postprocessing
+    if real:
+        return np.asarray([(val.real/N) for val in a])
+    else:
+        return np.asarray([(val/N) for val in a])
 
 
-def transform_radix2(x, inverse=False):
+def bluestein_radix2_transform(x, inverse=False):
+    # Returns the integer whose value is the reverse of the lowest 'bits' bits of the integer 'x'.
+    def reverse(_x, bits):
+        y = 0
+        for i in xrange(bits):
+            y = (y << 1) | (_x & 1)
+            _x >>= 1
+        return y
+
     N = x.shape[0]
-    levels = N.bit_length()-1
+    levels = N.bit_length()-1   # levels = log2(n)
     if 2 ** levels != N:
         raise ValueError("Length is not a power of 2")
 
-    # Now, levels = log2(n)
     coef = (2j if inverse else -2j) * np.pi / N
     W_exp = np.exp(np.arange(N//2) * coef)
     # Copy with bit-reversed permutation
@@ -78,10 +95,10 @@ def transform_radix2(x, inverse=False):
     return np.asarray(x)
 
 
-# Computes the discrete Fourier transform (DFT) of the given complex vector, returning the result as a new vector.
-# The vector can have any length. This requires the convolution function, which in turn requires the radix-2 FFT function.
-# Uses Bluestein's chirp z-transform algorithm.
-def transform_bluestein(x, inverse=False):
+# Computes the DFT. The input x can have any length.
+# Require the convolution function, which in turn requires the radix-2 FFT function
+# Implement Bluestein's chirp z-transform algorithm
+def bluestein_transform(x, inverse=False):
     # Find a power-of-2 convolution length m such that m >= n * 2 + 1
     N = x.shape[0]
     M = 2**((N*2).bit_length())
@@ -97,31 +114,7 @@ def transform_bluestein(x, inverse=False):
 
     c = convolve(a_n, b_n, False)[:N]  # Convolution
 
-    return c * W_exp
-    # return [(x * y) for (x, y) in zip(c, exptable)]  # Postprocessing
-
-# Computes the circular convolution of the given real or complex vectors, returning the result as a new vector. Each vector's length must be the same.
-# realoutput=True: Extract the real part of the convolution, so that the output is a list of floats. This is useful if both inputs are real.
-# realoutput=False: The output is always a list of complex numbers (even if both inputs are real).
-def convolve(a, b, real=True):
-    assert a.shape == b.shape
-
-    N = a.shape[0]
-
-    a = transform(a)
-    b = transform(b)
-
-    for i in range(N):
-        a[i] = a[i] * b[i]
-
-    # IDFT
-    a = transform(a, True)
-
-    # Scaling (because this FFT implementation omits it) and postprocessing
-    if real:
-        return np.asarray([(val.real/N) for val in a])
-    else:
-        return np.asarray([(val/N) for val in a])
+    return c*W_exp
 
 
 def FFT2D(image):
@@ -130,17 +123,16 @@ def FFT2D(image):
     FFT_result = np.zeros_like(image, dtype=complex)
 
     for i in xrange(M):
-        FFT_result[i,:] = np.asarray(transform_bluestein(image[i,:]))
+        FFT_result[i,:] = np.asarray(bluestein_transform(image[i,:]))
 
     for j in xrange(N):
-        FFT_result[:, j] = np.asarray(transform_bluestein(FFT_result[:, j]))
+        FFT_result[:, j] = np.asarray(bluestein_transform(FFT_result[:, j]))
 
     return FFT_result
 
 
 def FFT2D_shift(fft):
     """ Shift the zero frequency to the center of the 2-D Fourier Transform """
-
     rows, cols = fft.shape
     tmp = np.zeros_like(fft)
     ret = np.zeros_like(fft)
