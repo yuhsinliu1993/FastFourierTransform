@@ -6,9 +6,14 @@
 #       Scipy
 #
 #   How to execute:
-#       python fft.py [-h] [--dir DIR] [--filename FILENAME]
-#       EX:
-#           python fft.py --filename Q1.tif
+#       1. Run a single image 
+#           python fft.py [-h] [--dir DIR] [--filename FILENAME]
+#           Ex:
+#               python fft.py --filename Q1.tif
+#
+#       2. You can put Q1.tif~Q4.tif into "images" folder and execute
+#           ./run.sh
+#
 #
 #    optional arguments:
 #      -h, --help  show this help message and exit
@@ -29,7 +34,7 @@ def transform(x, inverse=False):
         return []
     elif N & (N - 1) == 0:
         # check if it is power of 2
-        return bluestein_radix2_transform(x, inverse)
+        return radix2_transform(x, inverse)
     else:
         # More complicated algorithm for arbitrary sizes
         return bluestein_transform(x, inverse)
@@ -57,9 +62,13 @@ def convolve(a, b, real=True):
         return np.asarray([(val/N) for val in a])
 
 
-def bluestein_radix2_transform(x, inverse=False):
+def radix2_transform(x, inverse=False):
+    """
+    1. This transform is based on Cooley-Tukey decimation-in-time radix-2 algorithm.
+    2. Compute FFT with the power-of-2 input length
+    """
     # Returns the integer whose value is the reverse of the lowest 'bits' bits of the integer 'x'.
-    def reverse(_x, bits):
+    def bit_reversal_permutation(_x, bits):
         y = 0
         for i in xrange(bits):
             y = (y << 1) | (_x & 1)
@@ -68,13 +77,15 @@ def bluestein_radix2_transform(x, inverse=False):
 
     N = x.shape[0]
     levels = N.bit_length()-1   # levels = log2(n)
+
     if 2 ** levels != N:
         raise ValueError("Length is not a power of 2")
 
     coef = (2j if inverse else -2j) * np.pi / N
     W_exp = np.exp(np.arange(N//2) * coef)
+
     # Copy with bit-reversed permutation
-    x = [x[reverse(i, levels)] for i in range(N)]
+    x = [x[bit_reversal_permutation(i, levels)] for i in range(N)]
 
     # Radix-2 decimation-in-time FFT
     size = 2
@@ -82,7 +93,7 @@ def bluestein_radix2_transform(x, inverse=False):
         halfsize = size // 2
         tablestep = N // size
 
-        for i in range(0, N, size):
+        for i in xrange(0, N, size):
             k = 0
             for j in range(i, i + halfsize):
                 temp = x[j + halfsize] * W_exp[k]
@@ -95,11 +106,14 @@ def bluestein_radix2_transform(x, inverse=False):
     return np.asarray(x)
 
 
-# Computes the DFT. The input x can have any length.
-# Require the convolution function, which in turn requires the radix-2 FFT function
-# Implement Bluestein's chirp z-transform algorithm
 def bluestein_transform(x, inverse=False):
-    # Find a power-of-2 convolution length m such that m >= n * 2 + 1
+    """
+    1. Compute the DFT by using Bluestein's chirp z-transform algorithm.
+    2. The input x can have any length.
+    3. This requires the convolution function, which in turn requires the radix-2 FFT.
+    """
+
+    # Find a power-of-2 convolution length M such that M >= N * 2 + 1
     N = x.shape[0]
     M = 2**((N*2).bit_length())
 
@@ -112,7 +126,7 @@ def bluestein_transform(x, inverse=False):
     zero_paddings_b = np.asarray([0] * (M - (N*2-1)))
     b_n = np.concatenate((W_exp[:N], zero_paddings_b, W_exp[:0:-1])).conjugate()
 
-    c = convolve(a_n, b_n, False)[:N]  # Convolution
+    c = convolve(a_n, b_n, False)[:N]
 
     return c*W_exp
 
@@ -123,10 +137,10 @@ def FFT2D(image):
     FFT_result = np.zeros_like(image, dtype=complex)
 
     for i in xrange(M):
-        FFT_result[i,:] = np.asarray(bluestein_transform(image[i,:]))
+        FFT_result[i,:] = bluestein_transform(image[i,:])
 
     for j in xrange(N):
-        FFT_result[:, j] = np.asarray(bluestein_transform(FFT_result[:, j]))
+        FFT_result[:, j] = bluestein_transform(FFT_result[:, j])
 
     return FFT_result
 
@@ -187,7 +201,6 @@ def DFT2D_slow(image, name=None):
         cv2.imwrite("dft.jpg", dft_img)
 
     return dft_result
-
 
 
 if __name__ == '__main__':
