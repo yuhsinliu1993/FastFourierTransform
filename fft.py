@@ -6,7 +6,7 @@
 #       Scipy
 #
 #   How to execute:
-#       1. Run a single image 
+#       1. Run a single image
 #           python fft.py [-h] [--dir DIR] [--filename FILENAME]
 #           Ex:
 #               python fft.py --filename Q1.tif
@@ -89,21 +89,43 @@ def radix2_transform(x, inverse=False):
 
     # Radix-2 decimation-in-time FFT
     size = 2
-    while size<=N:
-        halfsize = size // 2
-        tablestep = N // size
+    while size <= N:
+        half_size = size // 2
+        table_step = N // size
 
         for i in xrange(0, N, size):
             k = 0
-            for j in range(i, i + halfsize):
-                temp = x[j + halfsize] * W_exp[k]
-                x[j + halfsize] = x[j] - temp
+            for j in range(i, i + half_size):
+                temp = x[j + half_size] * W_exp[k]
+                x[j + half_size] = x[j] - temp
                 x[j] += temp
-                k += tablestep
+                k += table_step
 
         size *= 2
 
     return np.asarray(x)
+
+
+def zero_padding(image):
+    """
+    Zero padding the image two the nearest power-of-2 rows and cols
+    """
+    assert len(image.shape) == 2
+
+    M, N = image.shape
+
+    new_row = M
+    new_col = N
+
+    while new_row&(new_row-1):
+        new_row+=1
+    while new_col&(new_col-1):
+        new_col+=1
+
+    padded_image = np.zeros((new_row, new_col))
+    padded_image[:M,:N] = image[:,:]
+
+    return padded_image
 
 
 def bluestein_transform(x, inverse=False):
@@ -134,13 +156,15 @@ def bluestein_transform(x, inverse=False):
 def FFT2D(image):
     """ implementation of 2-D Fast Fourier Transform """
     M, N = image.shape
+
     FFT_result = np.zeros_like(image, dtype=complex)
 
     for i in xrange(M):
-        FFT_result[i,:] = bluestein_transform(image[i,:])
+        # FFT_result[i,:] = bluestein_transform(image[i,:])
+        FFT_result[i,:] = radix2_transform(image[i,:])
 
     for j in xrange(N):
-        FFT_result[:, j] = bluestein_transform(FFT_result[:, j])
+        FFT_result[:, j] = radix2_transform(FFT_result[:, j])
 
     return FFT_result
 
@@ -226,10 +250,11 @@ if __name__ == '__main__':
         image_path = os.path.join(args.dir, filename)
 
     img = ndimage.imread(image_path, flatten=True)
-    unshifted_fft = FFT2D(img)
-    spectrum = np.log10(np.absolute(unshifted_fft) + np.ones_like(img))
+    padded_img = zero_padding(img)
+    unshifted_fft = FFT2D(padded_img)
+    spectrum = np.log10(np.absolute(unshifted_fft) + np.ones_like(padded_img))
     misc.imsave("images/%s_unshifted_fft.png" % filename.split('.')[0], spectrum)
 
     shifted_fft = FFT2D_shift(unshifted_fft)
-    spectrum = np.log10(np.absolute(shifted_fft) + np.ones_like(img))
+    spectrum = np.log10(np.absolute(shifted_fft) + np.ones_like(padded_img))
     misc.imsave("images/%s_shifted_fft.png" % filename.split('.')[0], spectrum)
