@@ -127,7 +127,6 @@ def FFT2D_shift(fft):
     return ret
 
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument(
